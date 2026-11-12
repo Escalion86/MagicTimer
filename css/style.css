@@ -1,0 +1,623 @@
+/* === Reset & Base — Samsung One UI Clock Style === */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg: #000000;
+  --surface: #1c1c1e;
+  --surface2: #2c2c2e;
+  --text: #ffffff;
+  --text-dim: #8e8e93;
+  --text-disabled: #48484a;
+  --blue: #007aff;
+  --green: #30d158;
+  --green-pressed: #28ba4a;
+  --green-glow: rgba(48, 209, 88, 0.15);
+  --red: #ff453a;
+  --red-pressed: #d63a30;
+  --red-glow: rgba(255, 69, 58, 0.15);
+  --orange: #ff9f0a;
+  --gray: #636366;
+  --btn-size: 72px;
+  --btn-gap: 24px;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+  min-height: 100dvh;
+  min-height: -webkit-fill-available;
+  background: var(--bg);
+}
+
+#app {
+  max-width: 480px;
+  width: 100%;
+  padding: 12px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
+
+/* === Header — minimal gear === */
+header {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 0;
+  flex-shrink: 0;
+  min-height: 40px;
+}
+
+.icon-btn {
+  background: none;
+  border: none;
+  font-size: 22px;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 50%;
+  transition: background 0.15s;
+  line-height: 1;
+  color: var(--text-dim);
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-btn:hover {
+  background: var(--surface);
+}
+
+/* === Timer Display — Samsung large center digits === */
+#timerContainer {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex: 1;
+  padding: 0;
+  margin: 0;
+  min-height: 0;
+  width: 100%;
+}
+
+#timerDisplay {
+  text-align: center;
+  font-family: 'Inter', 'SF Mono', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
+  font-size: clamp(60px, 18vw, 112px);
+  font-weight: 200;
+  letter-spacing: 2px;
+  line-height: 1;
+  user-select: none;
+  -webkit-user-select: none;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 4px;
+}
+
+#timerMinutes, #timerSeconds {
+  color: var(--text);
+  font-weight: 200;
+  font-variant-numeric: tabular-nums;
+}
+
+.timer-sep {
+  color: var(--text);
+  font-weight: 200;
+  font-size: 1em;
+  /* colon sits slightly lower in Inter Thin — keep in baseline */
+}
+
+#timerCentiseconds {
+  font-size: 0.6em;
+  font-weight: 200;
+  vertical-align: baseline;
+  display: inline-block;
+  min-width: 1.4em;
+  text-align: center;
+}
+
+.timer-dot {
+  color: var(--text);
+  font-size: 0.6em;
+  font-weight: 200;
+  vertical-align: baseline;
+}
+
+/* === Controls — Samsung dual round button layout === */
+#controls {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: var(--btn-gap);
+  padding: 16px 0 12px;
+  flex-shrink: 0;
+}
+
+/* Primary button (Start / Stop) — large circle */
+.ctrl-primary {
+  width: var(--btn-size);
+  height: var(--btn-size);
+  border: none;
+  border-radius: 50%;
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  letter-spacing: 0.3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  outline: none;
+}
+
+.ctrl-primary:active {
+  transform: scale(0.92);
+}
+
+.ctrl-primary.start {
+  background: var(--green);
+  color: white;
+  box-shadow: 0 0 0 0px rgba(48, 209, 88, 0);
+  font-size: 16px;
+}
+
+.ctrl-primary.start:hover,
+.ctrl-primary.start:focus-visible {
+  box-shadow: 0 0 0 8px var(--green-glow);
+}
+
+.ctrl-primary.stop {
+  background: var(--red);
+  color: white;
+  box-shadow: 0 0 0 0px rgba(255, 69, 58, 0);
+}
+
+.ctrl-primary.stop:hover,
+.ctrl-primary.stop:focus-visible {
+  box-shadow: 0 0 0 8px var(--red-glow);
+}
+
+/* Secondary button (Lap / Reset) — smaller circle */
+.ctrl-secondary {
+  width: calc(var(--btn-size) - 8px);
+  height: calc(var(--btn-size) - 8px);
+  border: none;
+  border-radius: 50%;
+  font-size: 14px;
+  font-weight: 400;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  outline: none;
+}
+
+.ctrl-secondary:active {
+  transform: scale(0.92);
+}
+
+.ctrl-secondary:disabled {
+  background: var(--surface);
+  color: var(--text-disabled);
+  cursor: default;
+  pointer-events: none;
+}
+
+.ctrl-secondary:disabled:active {
+  transform: none;
+}
+
+.ctrl-secondary.lap {
+  background: transparent;
+  color: var(--text);
+  border: 2px solid var(--surface2);
+}
+
+.ctrl-secondary.lap:hover,
+.ctrl-secondary.lap:focus-visible {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.ctrl-secondary.reset {
+  background: transparent;
+  color: var(--red);
+  border: 2px solid var(--surface2);
+}
+
+.ctrl-secondary.reset:hover,
+.ctrl-secondary.reset:focus-visible {
+  background: rgba(255, 69, 58, 0.05);
+}
+
+/* === Laps List — Samsung-style cards, always visible === */
+#lapsSection {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-top: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--surface2) transparent;
+}
+
+#lapsSection::-webkit-scrollbar {
+  width: 3px;
+}
+
+#lapsSection::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#lapsSection::-webkit-scrollbar-thumb {
+  background: var(--surface2);
+  border-radius: 2px;
+}
+
+#lapsList {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 4px;
+}
+
+.lap-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: transparent;
+  border-radius: 12px;
+  font-family: 'Inter', 'SF Mono', 'Fira Code', monospace;
+  font-size: 14px;
+  font-weight: 300;
+  animation: lapSlideIn 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.lap-item:last-child {
+  border-bottom: none;
+}
+
+@keyframes lapSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.lap-item .lap-index {
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 400;
+  min-width: 40px;
+}
+
+.lap-item .lap-time {
+  font-weight: 300;
+  letter-spacing: 0.5px;
+  text-align: right;
+  flex: 1;
+}
+
+.lap-item .lap-real {
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 400;
+  margin-left: 8px;
+  text-align: right;
+  min-width: fit-content;
+}
+
+.lap-item .lap-fake-label {
+  color: var(--orange);
+  font-size: 9px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-left: 6px;
+}
+
+/* === Empty state === */
+.empty-laps {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 60px;
+  color: var(--text-disabled);
+  font-size: 13px;
+  font-weight: 300;
+  letter-spacing: 0.5px;
+}
+
+/* === Settings Modal === */
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  z-index: 100;
+  padding: 0;
+  animation: modalFadeIn 0.2s ease-out;
+}
+
+@keyframes modalFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.modal.hidden {
+  display: none;
+}
+
+.modal-content {
+  background: var(--surface);
+  border-radius: 20px 20px 0 0;
+  padding: 24px 20px 32px;
+  width: 100%;
+  max-width: 480px;
+  max-height: 85vh;
+  overflow-y: auto;
+  animation: modalSlideUp 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+@keyframes modalSlideUp {
+  from { transform: translateY(40px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--surface2);
+}
+
+.modal-header h2 {
+  font-size: 18px;
+  font-weight: 400;
+}
+
+/* === Settings === */
+.setting-group {
+  margin-bottom: 20px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--surface2);
+}
+
+.setting-group:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+}
+
+.setting-label {
+  display: block;
+  font-size: 14px;
+  font-weight: 400;
+  margin-bottom: 8px;
+}
+
+.hint {
+  display: block;
+  font-size: 12px;
+  color: var(--text-dim);
+  font-weight: 300;
+  margin-top: 4px;
+}
+
+.add-value-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.add-value-row input {
+  flex: 1;
+  padding: 10px 14px;
+  background: var(--bg);
+  border: 1px solid var(--surface2);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 16px;
+  font-family: 'Inter', monospace;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.add-value-row input:focus {
+  border-color: var(--blue);
+}
+
+#msList {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.ms-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--surface2);
+  border-radius: 20px;
+  font-family: 'Inter', monospace;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--blue);
+  animation: chipIn 0.15s ease-out;
+}
+
+@keyframes chipIn {
+  from { transform: scale(0.85); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.ms-chip .index-badge {
+  font-size: 10px;
+  color: var(--text-dim);
+  font-weight: 300;
+}
+
+.ms-chip .remove-chip {
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: 14px;
+  padding: 0 2px;
+  transition: color 0.15s;
+  background: none;
+  border: none;
+  line-height: 1;
+}
+
+.ms-chip .remove-chip:hover {
+  color: var(--red);
+}
+
+.presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.preset-btn {
+  padding: 6px 12px;
+  background: var(--surface2);
+  border: 1px solid var(--surface2);
+  border-radius: 20px;
+  color: var(--text-dim);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+
+.preset-btn:hover {
+  background: var(--blue);
+  color: white;
+  border-color: var(--blue);
+}
+
+/* === Select styling === */
+select {
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--bg);
+  border: 1px solid var(--surface2);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 300;
+}
+
+select:focus {
+  border-color: var(--blue);
+}
+
+/* === Danger button === */
+.footer-actions {
+  padding-top: 4px;
+}
+
+.danger-btn {
+  width: 100%;
+  padding: 12px;
+  background: transparent;
+  color: var(--red);
+  border: 1px solid var(--red);
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 400;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+
+.danger-btn:hover {
+  background: var(--red);
+  color: white;
+}
+
+/* === Small utility button (modal) === */
+.small-btn {
+  background: none;
+  border: none;
+  padding: 8px 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+
+.small-btn.primary {
+  background: var(--blue);
+  color: white;
+  font-weight: 500;
+}
+
+.small-btn.primary:hover {
+  opacity: 0.85;
+}
+
+/* === Responsive: larger screens get bigger buttons === */
+@media (min-height: 700px) {
+  :root {
+    --btn-size: 80px;
+    --btn-gap: 28px;
+  }
+  #timerDisplay {
+    font-size: clamp(72px, 20vw, 128px);
+  }
+}
+
+@media (min-height: 840px) {
+  :root {
+    --btn-size: 88px;
+    --btn-gap: 32px;
+  }
+  #timerDisplay {
+    font-size: clamp(80px, 22vw, 144px);
+  }
+}

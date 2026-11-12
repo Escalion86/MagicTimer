@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no, maximum-scale=1.0">
+  <meta name="theme-color" content="#000000">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content=" ">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600&display=swap" rel="stylesheet">
+  <title> </title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app">
+
+    <!-- Header — gear only -->
+    <header>
+      <div></div>
+      <button id="settingsBtn" class="icon-btn" title="Настройки">⋮</button>
+    </header>
+
+    <!-- Timer Display — Samsung large center digits MM:SS,CC -->
+    <div id="timerContainer">
+      <div id="timerDisplay">
+        <span id="timerMinutes">00</span>
+        <span class="timer-sep">:</span>
+        <span id="timerSeconds">00</span>
+        <span class="timer-dot">,</span>
+        <span id="timerCentiseconds">00</span>
+      </div>
+    </div>
+
+    <!-- Controls — Samsung dual button layout (Lap + Start) -->
+    <div id="controls">
+      <button id="btnSecondary" class="ctrl-secondary" disabled>Круг</button>
+      <button id="btnPrimary" class="ctrl-primary start">Старт</button>
+    </div>
+
+    <!-- Laps List — always visible, Samsung-style -->
+    <div id="lapsSection">
+      <ul id="lapsList"></ul>
+    </div>
+
+  </div>
+
+  <!-- Settings Modal -->
+  <div id="settingsModal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Настройки</h2>
+        <button id="closeSettings" class="icon-btn">✕</button>
+      </div>
+
+      <div class="setting-group">
+        <label class="setting-label">
+          Подмена миллисекунд
+          <span class="hint">Числа 0–99, которые показываются при каждом нажатии «Круг». Цикл повторяется.</span>
+        </label>
+        <div class="add-value-row">
+          <input type="number" id="newMsValue" min="0" max="99" placeholder="0-99" value="0">
+          <button id="addMsValue" class="small-btn primary">+ Добавить</button>
+        </div>
+        <ul id="msList"></ul>
+        <div class="presets">
+          <button class="preset-btn" data-values="40,3,21,77,15,88,50">🎯 Классика</button>
+          <button class="preset-btn" data-values="0">⏰ Ровные (0)</button>
+          <button class="preset-btn" data-values="99">⚡ Макс (99)</button>
+        </div>
+      </div>
+
+      <div class="setting-group">
+        <label class="setting-label">Режим отображения</label>
+        <select id="displayMode">
+          <option value="faked">Время с подменой</option>
+          <option value="real">Реальное время</option>
+          <option value="both">Оба значения</option>
+        </select>
+      </div>
+
+      <div class="footer-actions">
+        <button id="resetAll" class="danger-btn">Сбросить все настройки</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>

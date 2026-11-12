@@ -1,0 +1,23 @@
+# dependencies
+node_modules/
+
+# Expo / native-сборка (генерируется `npx expo prebuild`)
+mobile/android/
+mobile/ios/
+.expo/
+.expo-shared/
+dist/
+web-build/
+
+# артефакты сборки
+*.apk
+*.aab
+_backup/
+
+# локальные настройки инструментов
+.claude/
+.vscode/
+.env*.local
+*.tsbuildinfo
+.DS_Store
+Thumbs.db
