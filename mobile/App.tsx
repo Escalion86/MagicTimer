@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { requireOptionalNativeModule } from 'expo';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { StatusBar } from 'expo-status-bar';
@@ -20,17 +21,21 @@ import {
   TouchableOpacity,
   useWindowDimensions,
   View,
+  Vibration,
 } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
+import SortableList from './SortableList';
 import { captureTime } from './timer-core';
 import {
   deleteCustomPreset,
+  moveItem,
+  reorderSelectedValues,
   sanitizePresets,
   sanitizeSequence,
   saveCustomPreset,
 } from './preset-core';
 import type { CustomPreset } from './preset-core';
-import { createLaunchTime, cycleSelectedPreset, getSelectedPresetIndex } from './preset-control';
+import { createLaunchTime, cycleSelectedPreset, getPresetVibrationPattern, getSelectedPresetIndex } from './preset-control';
 
 type TimerPhase = 'idle' | 'running' | 'paused';
 type FakeSequenceItem = number | 'real';
@@ -39,6 +44,8 @@ type Settings = {
   customPresets: CustomPreset[];
   selectedPresetId: string | null;
   presetEnabled: boolean;
+  presetVibrationEnabled: boolean;
+  presetNoticeEnabled: boolean;
   launchRandomTime: boolean;
 };
 type Lap = {
@@ -67,9 +74,15 @@ const DEFAULT_SETTINGS: Settings = {
   customPresets: [],
   selectedPresetId: null,
   presetEnabled: false,
+  presetVibrationEnabled: true,
+  presetNoticeEnabled: true,
   launchRandomTime: false,
 };
 const SETTINGS_KEY = 'magicTimer_settings';
+const DRAG_HANDLE = <MaterialCommunityIcons name="drag" size={20} color={COLORS.textDim} />;
+const androidPresetHaptics = Platform.OS === 'android'
+  ? requireOptionalNativeModule<{ vibrate(pattern: number[]): void }>('PresetHaptics')
+  : null;
 const BOTTOM_TABS = [
   { label: 'Будильник', icon: 'alarm' as const, action: 'announce' as const },
   { label: 'Мир. время', icon: 'web-clock' as const, action: 'previous' as const },
@@ -77,6 +90,10 @@ const BOTTOM_TABS = [
   { label: 'Таймер', icon: 'timer-sand' as const, action: 'next' as const },
 ];
 type HiddenTabAction = typeof BOTTOM_TABS[number]['action'];
+
+function formatSequenceItem(value: FakeSequenceItem) {
+  return value === 'real' ? 'Реальное' : String(value).padStart(2, '0');
+}
 
 function formatTime(milliseconds: number) {
   const totalCentiseconds = Math.floor(Math.max(0, milliseconds) / 10);
@@ -104,7 +121,10 @@ function sanitizeSettings(value: unknown): Settings {
     fakeMs: Array.isArray(candidate.fakeMs) ? fakeMs : DEFAULT_SETTINGS.fakeMs,
     customPresets,
     selectedPresetId,
-    presetEnabled: customPresets.length > 0 && candidate.presetEnabled === true,
+    presetEnabled: customPresets.length > 0
+      && (candidate.presetEnabled === undefined || candidate.presetEnabled === true),
+    presetVibrationEnabled: candidate.presetVibrationEnabled !== false,
+    presetNoticeEnabled: candidate.presetNoticeEnabled !== false,
     launchRandomTime: candidate.launchRandomTime === true,
   };
 }
@@ -254,12 +274,13 @@ function SettingsSheet({ visible, settings, onClose, onChange, onReset }: {
   visible: boolean;
   settings: Settings;
   onClose: () => void;
-  onChange: (settings: Settings) => void;
+  onChange: (settings: Settings, restartSequence?: boolean, announcePreset?: boolean) => void;
   onReset: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const [newValue, setNewValue] = useState('0');
   const [presetName, setPresetName] = useState('');
+  const [dragging, setDragging] = useState(false);
 
   useEffect(() => {
     if (!visible) return undefined;
@@ -301,14 +322,14 @@ function SettingsSheet({ visible, settings, onClose, onChange, onReset }: {
     const savedPreset = customPresets.find(
       (preset) => preset.name.localeCompare(name, 'ru', { sensitivity: 'base' }) === 0,
     );
+    if (!savedPreset) return;
     onChange({
       ...settings,
       customPresets,
-      selectedPresetId: savedPreset?.id ?? settings.selectedPresetId,
-    });
+      selectedPresetId: savedPreset.id,
+      presetEnabled: true,
+    }, true);
     setPresetName('');
-    if (Platform.OS === 'android') ToastAndroid.show('Пресет сохранён', ToastAndroid.SHORT);
-    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
   const confirmReset = () => Alert.alert(
@@ -323,17 +344,22 @@ function SettingsSheet({ visible, settings, onClose, onChange, onReset }: {
   if (!visible) return null;
 
   return (
-    <View style={styles.settingsOverlay}>
-      <Pressable style={styles.modalBackdrop} onPress={onClose}>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.keyboardAvoider}
-        >
-          <Pressable
-            style={[styles.settingsSheet, { paddingBottom: Math.max(24, insets.bottom + 12) }]}
-            onPress={(event) => event.stopPropagation()}
-          >
-            <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      style={styles.settingsOverlay}
+    >
+          <Pressable style={styles.modalBackdrop} onPress={onClose} accessible={false} />
+          <View style={styles.settingsSheet}>
+            <ScrollView
+              style={styles.settingsScroll}
+              contentContainerStyle={[
+                styles.settingsContent,
+                { paddingBottom: Math.max(24, insets.bottom + 12) },
+              ]}
+              keyboardShouldPersistTaps="handled"
+              scrollEnabled={!dragging}
+              persistentScrollbar
+            >
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle}>Настройки</Text>
                 <Pressable accessibilityRole="button" accessibilityLabel="Закрыть настройки"
@@ -374,17 +400,35 @@ function SettingsSheet({ visible, settings, onClose, onChange, onReset }: {
                   <Text style={styles.addRealButtonText}>Добавить «Реальное»</Text>
                 </Pressable>
 
-                <View style={styles.chips}>
-                  {settings.fakeMs.map((value, index) => (
-                    <View style={styles.chip} key={`${index}-${value}`}>
+                {settings.fakeMs.length > 1 ? (
+                  <Text style={styles.reorderHint}>Потяните за ручку слева, чтобы изменить порядок значений.</Text>
+                ) : null}
+                <SortableList
+                  items={settings.fakeMs}
+                  itemKey={(_, index) => String(index)}
+                  itemLabel={(value) => `значение ${formatSequenceItem(value)}`}
+                  style={styles.chips}
+                  highlightColor={COLORS.purple}
+                  handleIcon={DRAG_HANDLE}
+                  handleStyle={styles.chipDragHandle}
+                  onDragChange={setDragging}
+                  onMove={(from, to) => {
+                    const next = reorderSelectedValues(settings.fakeMs, settings.customPresets, settings.selectedPresetId, from, to);
+                    if (next.fakeMs !== settings.fakeMs) {
+                      onChange({ ...settings, ...next }, next.customPresets !== settings.customPresets, false);
+                    }
+                  }}
+                  renderItem={(value, index, handle) => (
+                    <View style={styles.chip}>
+                      {handle}
                       <Text style={styles.chipIndex}>#{index + 1}</Text>
                       <Text style={[styles.chipValue, value === 'real' && styles.chipRealValue]}>
-                        {value === 'real' ? 'Реальное' : String(value).padStart(2, '0')}
+                        {formatSequenceItem(value)}
                       </Text>
                       <Pressable
                         accessibilityRole="button"
-                        accessibilityLabel={`Удалить значение ${value === 'real' ? 'Реальное' : value}`}
-                        hitSlop={6}
+                        accessibilityLabel={`Удалить значение ${formatSequenceItem(value)}`}
+                        style={styles.chipDeleteButton}
                         onPress={() => onChange({
                           ...settings,
                           fakeMs: settings.fakeMs.filter((_, itemIndex) => itemIndex !== index),
@@ -393,12 +437,27 @@ function SettingsSheet({ visible, settings, onClose, onChange, onReset }: {
                         <MaterialCommunityIcons name="close" size={15} color={COLORS.textDim} />
                       </Pressable>
                     </View>
-                  ))}
-                </View>
+                  )}
+                />
 
                 <View style={styles.presetSection}>
                   <Text style={styles.settingLabel}>Мои пресеты</Text>
-                  <Text style={styles.hint}>Сохраните текущую последовательность или выберите ранее сохранённую.</Text>
+                  <Text style={styles.hint}>Введите название, чтобы сохранить новую последовательность. Чтобы обновить существующий пресет, введите его название.</Text>
+                  {settings.customPresets.length > 0 ? (
+                    <View style={styles.switchRow}>
+                      <View style={styles.switchCopy}>
+                        <Text style={styles.settingLabel}>Применять пресет</Text>
+                        <Text style={styles.hint}>Быстрое переключение: удерживайте «Секундомер» 2 секунды.</Text>
+                      </View>
+                      <Switch
+                        accessibilityLabel="Применять пресет"
+                        value={settings.presetEnabled}
+                        onValueChange={(presetEnabled) => onChange({ ...settings, presetEnabled })}
+                        trackColor={{ false: COLORS.divider, true: COLORS.purple }}
+                        thumbColor={COLORS.text}
+                      />
+                    </View>
+                  ) : null}
                   <View style={styles.presetSaveRow}>
                     <TextInput
                       value={presetName}
@@ -423,59 +482,109 @@ function SettingsSheet({ visible, settings, onClose, onChange, onReset }: {
 
                   {settings.customPresets.length === 0 ? (
                     <Text style={styles.emptyPresets}>Сохранённых пресетов пока нет</Text>
-                  ) : settings.customPresets.map((preset) => (
-                    <View
-                      key={preset.id}
-                      style={[
-                        styles.presetCard,
-                        settings.selectedPresetId === preset.id && styles.presetCardSelected,
-                      ]}
-                    >
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel={`Выбрать пресет ${preset.name}`}
-                        onPress={() => {
-                          onChange({
-                            ...settings,
-                            fakeMs: [...preset.values],
-                            selectedPresetId: preset.id,
-                          });
-                          void Haptics.selectionAsync();
+                  ) : (
+                    <>
+                      {settings.customPresets.length > 1 ? (
+                        <Text style={styles.reorderHint}>Потяните за ручку слева, чтобы изменить порядок пресетов.</Text>
+                      ) : null}
+                      <SortableList
+                        items={settings.customPresets}
+                        itemKey={(preset) => preset.id}
+                        itemLabel={(preset) => `пресет ${preset.name}`}
+                        style={styles.presetList}
+                        highlightColor={COLORS.purple}
+                        handleIcon={DRAG_HANDLE}
+                        vertical
+                        onDragChange={setDragging}
+                        onMove={(from, to) => {
+                          const customPresets = moveItem(settings.customPresets, from, to);
+                          if (customPresets !== settings.customPresets) onChange({ ...settings, customPresets });
                         }}
-                        style={({ pressed }) => [styles.presetContent, pressed && styles.pressed]}
-                      >
-                        <View style={styles.presetTitleRow}>
-                          <Text style={styles.presetName} numberOfLines={1}>{preset.name}</Text>
-                          {settings.selectedPresetId === preset.id ? (
-                            <Text style={styles.selectedPresetLabel}>Выбран</Text>
-                          ) : null}
-                        </View>
-                        <Text style={styles.presetValues} numberOfLines={2}>
-                          {preset.values.map((value) => value === 'real' ? 'Реальное' : String(value).padStart(2, '0')).join(' · ')}
-                        </Text>
-                      </Pressable>
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel={`Удалить пресет ${preset.name}`}
-                        hitSlop={8}
-                        onPress={() => {
-                          const customPresets = deleteCustomPreset(settings.customPresets, preset.id);
-                          const deletingSelected = settings.selectedPresetId === preset.id;
-                          onChange({
-                            ...settings,
-                            customPresets,
-                            selectedPresetId: deletingSelected
-                              ? customPresets[0]?.id ?? null
-                              : settings.selectedPresetId,
-                            presetEnabled: deletingSelected ? false : settings.presetEnabled,
-                          });
-                        }}
-                        style={({ pressed }) => [styles.deletePresetButton, pressed && styles.pressed]}
-                      >
-                        <MaterialCommunityIcons name="delete-outline" size={21} color={COLORS.lapRed} />
-                      </Pressable>
-                    </View>
-                  ))}
+                        renderItem={(preset, index, handle) => (
+                          <View style={[
+                            styles.presetCard,
+                            settings.selectedPresetId === preset.id && styles.presetCardSelected,
+                          ]}>
+                            {handle}
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel={`Выбрать пресет ${preset.name}`}
+                              onPress={() => {
+                                onChange({
+                                  ...settings,
+                                  fakeMs: [...preset.values],
+                                  selectedPresetId: preset.id,
+                                  presetEnabled: true,
+                                }, true);
+                              }}
+                              style={({ pressed }) => [
+                                styles.presetContent, !handle && styles.presetContentWithoutHandle, pressed && styles.pressed,
+                              ]}
+                            >
+                              <View style={styles.presetTitleRow}>
+                                <Text style={styles.chipIndex}>#{index + 1}</Text>
+                                <Text style={styles.presetName} numberOfLines={1}>{preset.name}</Text>
+                                {settings.selectedPresetId === preset.id ? (
+                                  <Text style={styles.selectedPresetLabel}>Выбран</Text>
+                                ) : null}
+                              </View>
+                              <Text style={styles.presetValues} numberOfLines={2}>
+                                {preset.values.map(formatSequenceItem).join(' · ')}
+                              </Text>
+                            </Pressable>
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel={`Удалить пресет ${preset.name}`}
+                              hitSlop={8}
+                              onPress={() => {
+                                const customPresets = deleteCustomPreset(settings.customPresets, preset.id);
+                                const deletingSelected = settings.selectedPresetId === preset.id;
+                                onChange({
+                                  ...settings,
+                                  customPresets,
+                                  selectedPresetId: deletingSelected
+                                    ? customPresets[0]?.id ?? null
+                                    : settings.selectedPresetId,
+                                  presetEnabled: deletingSelected ? false : settings.presetEnabled,
+                                });
+                              }}
+                              style={({ pressed }) => [styles.deletePresetButton, pressed && styles.pressed]}
+                            >
+                              <MaterialCommunityIcons name="delete-outline" size={21} color={COLORS.lapRed} />
+                            </Pressable>
+                          </View>
+                        )}
+                      />
+                    </>
+                  )}
+                </View>
+              </View>
+
+              <View style={[styles.settingGroup, styles.feedbackGroup]}>
+                <View style={styles.switchRow}>
+                  <View style={styles.switchCopy}>
+                    <Text style={styles.settingLabel}>Показывать вибрацией номер пресета</Text>
+                    <Text style={styles.hint}>Длинная вибрация означает, что подмена выключена.</Text>
+                  </View>
+                  <Switch
+                    accessibilityLabel="Показывать вибрацией номер пресета"
+                    value={settings.presetVibrationEnabled}
+                    onValueChange={(presetVibrationEnabled) => onChange({ ...settings, presetVibrationEnabled })}
+                    trackColor={{ false: COLORS.divider, true: COLORS.purple }}
+                    thumbColor={COLORS.text}
+                  />
+                </View>
+                <View style={styles.switchRow}>
+                  <Text style={[styles.settingLabel, styles.switchCopy]}>
+                    Показывать уведомление с номером и статусом пресета
+                  </Text>
+                  <Switch
+                    accessibilityLabel="Показывать уведомление с номером и статусом пресета"
+                    value={settings.presetNoticeEnabled}
+                    onValueChange={(presetNoticeEnabled) => onChange({ ...settings, presetNoticeEnabled })}
+                    trackColor={{ false: COLORS.divider, true: COLORS.purple }}
+                    thumbColor={COLORS.text}
+                  />
                 </View>
               </View>
 
@@ -502,10 +611,8 @@ function SettingsSheet({ visible, settings, onClose, onChange, onReset }: {
                 <Text style={styles.resetSettingsText}>Сбросить все настройки</Text>
               </Pressable>
             </ScrollView>
-          </Pressable>
-        </KeyboardAvoidingView>
-      </Pressable>
-    </View>
+          </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -517,6 +624,7 @@ function MagicTimerScreen() {
   const [laps, setLaps] = useState<Lap[]>([]);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [settingsVisible, setSettingsVisible] = useState(false);
+  const [presetNotice, setPresetNotice] = useState<string | null>(null);
   const startTimeRef = useRef(0);
   const accumulatedMsRef = useRef(0);
   const animationFrameRef = useRef<number | null>(null);
@@ -526,21 +634,66 @@ function MagicTimerScreen() {
   const settingsLoadedRef = useRef(false);
   const launchInitializedRef = useRef(false);
   const vibrationRunRef = useRef(0);
+  const presetNoticeTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const applySettings = useCallback((nextSettings: Settings) => {
+  const showPresetNotice = useCallback((index: number, enabled: boolean) => {
+    setPresetNotice(index < 0 ? 'Нет пресетов' : `Пресет ${index + 1} · ${enabled ? 'Вкл.' : 'Выкл.'}`);
+    if (presetNoticeTimeout.current !== null) clearTimeout(presetNoticeTimeout.current);
+    presetNoticeTimeout.current = setTimeout(() => {
+      presetNoticeTimeout.current = null;
+      setPresetNotice(null);
+    }, 1500);
+  }, []);
+
+  const applySettings = useCallback((nextSettings: Settings, restartSequence = false) => {
+    const previous = settingsRef.current;
+    if (restartSequence
+      || nextSettings.selectedPresetId !== previous.selectedPresetId
+      || nextSettings.presetEnabled !== previous.presetEnabled) {
+      fakeIndexRef.current = 0;
+    }
     settingsRef.current = nextSettings;
     setSettings(nextSettings);
   }, []);
 
-  const vibrateCount = useCallback(async (count: number) => {
+  const vibratePreset = useCallback(async (index: number, enabled: boolean) => {
+    if (index < 0 || Platform.OS === 'web') return;
     const run = vibrationRunRef.current + 1;
     vibrationRunRef.current = run;
-    for (let index = 0; index < count; index += 1) {
+    if (Platform.OS === 'android') {
+      const pattern = getPresetVibrationPattern(index, enabled);
+      if (androidPresetHaptics) androidPresetHaptics.vibrate(pattern);
+      else Vibration.vibrate(pattern, false);
+      return;
+    }
+    if (!enabled) {
+      Vibration.vibrate();
+      return;
+    }
+    for (let pulse = 0; pulse <= index; pulse += 1) {
       if (vibrationRunRef.current !== run) return;
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      if (index < count - 1) await new Promise((resolve) => setTimeout(resolve, 150));
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      if (pulse < index) await new Promise((resolve) => setTimeout(resolve, 250));
     }
   }, []);
+
+  const reportPreset = useCallback((currentSettings: Settings, announceOnly = false) => {
+    const { customPresets, selectedPresetId, presetEnabled } = currentSettings;
+    const index = getSelectedPresetIndex(customPresets, selectedPresetId);
+    if (!announceOnly && currentSettings.presetNoticeEnabled) showPresetNotice(index, presetEnabled);
+    if (currentSettings.presetVibrationEnabled) void vibratePreset(index, presetEnabled);
+  }, [showPresetNotice, vibratePreset]);
+
+  const applySettingsFromSheet = useCallback((nextSettings: Settings, restartSequence = false, announcePreset = restartSequence) => {
+    const previous = settingsRef.current;
+    const changed = nextSettings.selectedPresetId !== previous.selectedPresetId
+      || nextSettings.presetEnabled !== previous.presetEnabled;
+    applySettings(nextSettings, restartSequence);
+    if (previous.presetNoticeEnabled && !nextSettings.presetNoticeEnabled) {
+      setPresetNotice(null);
+    }
+    if (changed || announcePreset) reportPreset(nextSettings);
+  }, [applySettings, reportPreset]);
 
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => {
@@ -572,6 +725,7 @@ function MagicTimerScreen() {
   }, [settings]);
   useEffect(() => () => {
     if (animationFrameRef.current !== null) cancelAnimationFrame(animationFrameRef.current);
+    if (presetNoticeTimeout.current !== null) clearTimeout(presetNoticeTimeout.current);
   }, []);
 
   const tick = useCallback((now: number) => {
@@ -671,21 +825,16 @@ function MagicTimerScreen() {
 
   const handleHiddenTabLongPress = useCallback((action: HiddenTabAction) => {
     const currentSettings = settingsRef.current;
-    const presetIndex = getSelectedPresetIndex(
-      currentSettings.customPresets,
-      currentSettings.selectedPresetId,
-    );
-
     if (action === 'announce') {
-      if (presetIndex >= 0) void vibrateCount(presetIndex + 1);
+      reportPreset(currentSettings, true);
       return;
     }
 
     if (action === 'toggle') {
-      const presetEnabled = presetIndex >= 0 ? !currentSettings.presetEnabled : false;
-      fakeIndexRef.current = 0;
-      applySettings({ ...currentSettings, presetEnabled });
-      void vibrateCount(presetEnabled ? 1 : 2);
+      const presetEnabled = currentSettings.customPresets.length > 0 && !currentSettings.presetEnabled;
+      const nextSettings = { ...currentSettings, presetEnabled };
+      applySettings(nextSettings);
+      reportPreset(nextSettings);
       return;
     }
 
@@ -695,16 +844,21 @@ function MagicTimerScreen() {
       currentSettings.selectedPresetId,
       direction,
     );
-    if (!nextPreset) return;
-    const selectedPreset = currentSettings.customPresets[nextPreset.index];
-    fakeIndexRef.current = 0;
-    applySettings({
-      ...currentSettings,
-      selectedPresetId: nextPreset.id,
-      fakeMs: [...selectedPreset.values],
-    });
-    void vibrateCount(nextPreset.index + 1);
-  }, [applySettings, vibrateCount]);
+    if (!nextPreset) {
+      reportPreset(currentSettings);
+      return;
+    }
+
+    if (nextPreset.id !== currentSettings.selectedPresetId) {
+      const selectedPreset = currentSettings.customPresets[nextPreset.index];
+      applySettings({
+        ...currentSettings,
+        selectedPresetId: nextPreset.id,
+        fakeMs: [...selectedPreset.values],
+      });
+    }
+    reportPreset(settingsRef.current);
+  }, [applySettings, reportPreset]);
 
   const compact = laps.length > 0;
   const primaryLabel = phase === 'running' ? 'Стоп' : phase === 'paused' ? 'Продолжить' : 'Начать';
@@ -769,9 +923,14 @@ function MagicTimerScreen() {
         visible={settingsVisible}
         settings={settings}
         onClose={closeSettings}
-        onChange={applySettings}
+        onChange={applySettingsFromSheet}
         onReset={resetAll}
       />
+      {presetNotice === null ? null : (
+        <View style={[styles.presetNotice, { bottom: insets.bottom + 94 }]}>
+          <Text accessibilityLiveRegion="polite" style={styles.presetNoticeText}>{presetNotice}</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -835,13 +994,22 @@ const styles = StyleSheet.create({
   bottomTab: { flex: 1, alignItems: 'center', justifyContent: 'flex-start', gap: 7 },
   bottomTabLabel: { color: COLORS.textDim, fontSize: 12.5, fontWeight: '400' },
   bottomTabLabelActive: { color: COLORS.text, fontWeight: '600' },
-  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.78)', justifyContent: 'flex-end' },
-  settingsOverlay: { position: 'absolute', inset: 0, zIndex: 100 },
-  keyboardAvoider: { justifyContent: 'flex-end', pointerEvents: 'box-none' },
+  modalBackdrop: { position: 'absolute', inset: 0, backgroundColor: 'rgba(0,0,0,0.78)' },
+  settingsOverlay: { position: 'absolute', inset: 0, zIndex: 100, justifyContent: 'flex-end' },
   settingsSheet: {
-    maxHeight: '88%', backgroundColor: COLORS.surface,
+    maxHeight: '88%', flexShrink: 1, backgroundColor: COLORS.surface, overflow: 'hidden',
     borderTopLeftRadius: 26, borderTopRightRadius: 26,
-    paddingTop: 22, paddingHorizontal: 20,
+  },
+  settingsScroll: { flexGrow: 0, flexShrink: 1 },
+  settingsContent: { paddingTop: 22, paddingHorizontal: 20 },
+  presetNotice: {
+    position: 'absolute', left: 16, right: 16, zIndex: 110,
+    alignItems: 'center', pointerEvents: 'none',
+  },
+  presetNoticeText: {
+    backgroundColor: COLORS.surfaceRaised, color: COLORS.text,
+    borderRadius: 20, overflow: 'hidden', paddingVertical: 8, paddingHorizontal: 14,
+    fontSize: 14, fontWeight: '500',
   },
   modalHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
@@ -849,6 +1017,7 @@ const styles = StyleSheet.create({
   },
   modalTitle: { color: COLORS.text, fontSize: 20, fontWeight: '500' },
   settingGroup: { paddingVertical: 18, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.divider },
+  feedbackGroup: { gap: 18 },
   settingLabel: { color: COLORS.text, fontSize: 15, fontWeight: '500' },
   hint: { color: COLORS.textDim, fontSize: 12.5, lineHeight: 18, marginTop: 6 },
   addRow: { flexDirection: 'row', gap: 8, marginTop: 14, marginBottom: 11 },
@@ -867,12 +1036,14 @@ const styles = StyleSheet.create({
     marginBottom: 12, flexDirection: 'row', gap: 7, alignItems: 'center', justifyContent: 'center',
   },
   addRealButtonText: { color: COLORS.purple, fontSize: 14, fontWeight: '500' },
+  reorderHint: { color: COLORS.textDim, fontSize: 12.5, lineHeight: 18, marginBottom: 7 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginBottom: 12 },
   chip: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: COLORS.surfaceRaised, borderRadius: 18,
-    paddingVertical: 7, paddingHorizontal: 10,
+    flexDirection: 'row', alignItems: 'center', minHeight: 44, gap: 4,
+    backgroundColor: COLORS.surfaceRaised, borderRadius: 18, paddingLeft: 8,
   },
+  chipDragHandle: { width: 32, marginLeft: -8 },
+  chipDeleteButton: { minHeight: 44, width: 29, alignItems: 'center', justifyContent: 'center' },
   chipIndex: { color: COLORS.textDim, fontSize: 10 },
   chipValue: { color: COLORS.text, fontSize: 15, fontWeight: '500', fontVariant: ['tabular-nums'] },
   chipRealValue: { color: COLORS.purple, fontSize: 13 },
@@ -888,13 +1059,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 13, flexDirection: 'row', gap: 5, alignItems: 'center', justifyContent: 'center',
   },
   emptyPresets: { color: COLORS.textDim, fontSize: 12.5, textAlign: 'center', paddingVertical: 14 },
+  presetList: { gap: 8 },
   presetCard: {
     minHeight: 58, flexDirection: 'row', alignItems: 'center',
-    backgroundColor: COLORS.surfaceRaised, borderRadius: 16, marginTop: 8,
+    backgroundColor: COLORS.surfaceRaised, borderRadius: 16,
     borderWidth: 1, borderColor: 'transparent',
   },
   presetCardSelected: { borderColor: COLORS.purple },
-  presetContent: { flex: 1, paddingVertical: 10, paddingLeft: 14, paddingRight: 8 },
+  presetContent: { flex: 1, paddingVertical: 10, paddingRight: 8 },
+  presetContentWithoutHandle: { paddingLeft: 14 },
   presetTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   presetName: { flexShrink: 1, color: COLORS.text, fontSize: 14.5, fontWeight: '500' },
   selectedPresetLabel: { color: COLORS.purple, fontSize: 10.5, fontWeight: '600' },

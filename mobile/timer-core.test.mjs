@@ -2,8 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { captureTime } from './timer-core.ts';
-import { deleteCustomPreset, sanitizePresets, saveCustomPreset } from './preset-core.ts';
-import { createLaunchTime, cycleSelectedPreset, getSelectedPresetIndex } from './preset-control.ts';
+import { deleteCustomPreset, moveItem, reorderSelectedValues, sanitizePresets, saveCustomPreset } from './preset-core.ts';
+import {
+  PRESET_GAP_MS,
+  PRESET_OFF_PULSE_MS,
+  PRESET_PULSE_MS,
+  buildPresetVibrationPattern,
+  createLaunchTime,
+  cycleSelectedPreset,
+  getPresetVibrationPattern,
+  getSelectedPresetIndex,
+} from './preset-control.ts';
 
 test('real entries preserve hundredths before any substitution', () => {
   assert.deepEqual(captureTime(1567, 0, 'real'), { totalMs: 1560, lapMs: 1560 });
@@ -113,8 +122,65 @@ test('hidden preset navigation cycles in both directions', () => {
   assert.deepEqual(cycleSelectedPreset(presets, 'one', 1), { id: 'two', index: 1 });
   assert.deepEqual(cycleSelectedPreset(presets, 'three', 1), { id: 'one', index: 0 });
   assert.deepEqual(cycleSelectedPreset(presets, 'one', -1), { id: 'three', index: 2 });
-  assert.equal(cycleSelectedPreset(presets.slice(0, 1), 'one', 1), null);
+  for (const direction of [-1, 1]) {
+    const onlyPreset = cycleSelectedPreset(presets.slice(0, 1), 'one', direction);
+    assert.deepEqual(onlyPreset, { id: 'one', index: 0 });
+    assert.deepEqual(buildPresetVibrationPattern(onlyPreset.index + 1), [0, PRESET_PULSE_MS]);
+    assert.equal(cycleSelectedPreset([], null, direction), null);
+  }
   assert.equal(getSelectedPresetIndex(presets, 'missing'), 0);
+});
+
+test('restored preset order drives both directions without changing which preset is selected', () => {
+  const presets = [
+    { id: 'one', name: 'Первый', values: [1] },
+    { id: 'two', name: 'Второй', values: [2] },
+    { id: 'three', name: 'Третий', values: [3] },
+  ];
+  const selected = presets[0];
+  const reordered = moveItem(presets, 0, 2);
+  assert.equal(reordered[2], selected);
+  assert.equal(presets[0], selected);
+  const restored = sanitizePresets(JSON.parse(JSON.stringify(reordered)));
+  assert.equal(getSelectedPresetIndex(restored, selected.id), 2);
+  assert.deepEqual(cycleSelectedPreset(restored, selected.id, 1), { id: 'two', index: 0 });
+  assert.deepEqual(cycleSelectedPreset(restored, selected.id, -1), { id: 'three', index: 1 });
+});
+
+test('moving a repeated value by position persists the exact order in the selected preset', () => {
+  const values = [11, 'real', 11, 55];
+  const presets = [
+    { id: 'first', name: 'Первый', values: [77] },
+    { id: 'selected', name: 'Второй', values: [...values] },
+  ];
+  const result = reorderSelectedValues(values, presets, 'selected', 2, 0);
+  const restored = sanitizePresets(JSON.parse(JSON.stringify(result.customPresets)));
+  assert.deepEqual(result.fakeMs, [11, 11, 'real', 55]);
+  assert.equal(result.customPresets[0], presets[0]);
+  assert.deepEqual(restored[1], { ...presets[1], values: result.fakeMs });
+  assert.deepEqual(presets[1].values, [11, 'real', 11, 55]);
+  assert.strictEqual(moveItem(values, 1, 1), values);
+  assert.strictEqual(moveItem(values, -1, 0), values);
+  assert.strictEqual(moveItem(values, 0, values.length), values);
+});
+
+test('moving a value in a draft leaves saved presets untouched', () => {
+  const presets = [{ id: 'one', name: 'Первый', values: [11, 55] }];
+  const draft = [11, 55, 'real'];
+  const result = reorderSelectedValues(draft, presets, 'one', 2, 0);
+  assert.deepEqual(result.fakeMs, ['real', 11, 55]);
+  assert.strictEqual(result.customPresets, presets);
+});
+
+test('real, real, 11, 11, 55 preserves both repeated forced values', () => {
+  const sequence = ['real', 'real', 11, 11, 55];
+  let total = 0;
+  const hundredths = sequence.map((value) => {
+    const result = captureTime(total + 1570, total, value);
+    total = result.totalMs;
+    return (total / 10) % 100;
+  });
+  assert.deepEqual(hundredths, [57, 14, 11, 11, 55]);
 });
 
 test('launch time encodes the one-based preset number only in minutes', () => {
@@ -133,4 +199,32 @@ test('bottom navigation exposes only two-second hidden long presses', () => {
   assert.match(source, /action: 'toggle'/);
   assert.match(source, /action: 'next'/);
   assert.doesNotMatch(source, /phase[^\n]+handleHiddenTabLongPress|handleHiddenTabLongPress[^\n]+phase/);
+});
+
+test('preset switch vibration has one clearly separate pulse per preset', () => {
+  assert.deepEqual(buildPresetVibrationPattern(0), []);
+  assert.deepEqual(buildPresetVibrationPattern(1), [0, PRESET_PULSE_MS]);
+  assert.deepEqual(buildPresetVibrationPattern(3), [
+    0, PRESET_PULSE_MS, PRESET_GAP_MS, PRESET_PULSE_MS, PRESET_GAP_MS, PRESET_PULSE_MS,
+  ]);
+  assert.equal(buildPresetVibrationPattern(4).filter((ms) => ms === PRESET_PULSE_MS).length, 4);
+  // Паттерн начинается с нулевой задержки и не висит паузой в конце.
+  assert.equal(buildPresetVibrationPattern(4).at(-1), PRESET_PULSE_MS);
+  // Импульс длиннее системного «тика», пауза длиннее импульса — иначе серия сливается в один buzz.
+  assert.ok(PRESET_PULSE_MS >= 150);
+  assert.ok(PRESET_GAP_MS > PRESET_PULSE_MS);
+});
+
+test('preset vibration pattern clamps junk input instead of vibrating forever', () => {
+  assert.deepEqual(buildPresetVibrationPattern(-1), []);
+  assert.deepEqual(buildPresetVibrationPattern(Number.NaN), []);
+  assert.deepEqual(buildPresetVibrationPattern(2.9), [0, PRESET_PULSE_MS, PRESET_GAP_MS, PRESET_PULSE_MS]);
+});
+
+test('preset feedback distinguishes its number from disabled substitution', () => {
+  assert.deepEqual(getPresetVibrationPattern(1, true), [0, PRESET_PULSE_MS, PRESET_GAP_MS, PRESET_PULSE_MS]);
+  assert.deepEqual(getPresetVibrationPattern(1, false), [0, PRESET_OFF_PULSE_MS]);
+  assert.deepEqual(getPresetVibrationPattern(0, false), [0, PRESET_OFF_PULSE_MS]);
+  assert.deepEqual(getPresetVibrationPattern(-1, false), []);
+  assert.ok(PRESET_OFF_PULSE_MS > PRESET_PULSE_MS);
 });

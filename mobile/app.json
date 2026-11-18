@@ -2,13 +2,13 @@
   "expo": {
     "name": "Секундомер",
     "slug": "magic-timer",
-    "version": "1.0.5",
+    "version": "1.0.9",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "android": {
       "package": "com.magicapps.magictimer",
-      "versionCode": 6,
+      "versionCode": 10,
       "blockedPermissions": [
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",

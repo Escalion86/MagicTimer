@@ -48,3 +48,34 @@ export function saveCustomPreset(
 export function deleteCustomPreset(presets: CustomPreset[], id: string) {
   return presets.filter((preset) => preset.id !== id);
 }
+
+export function moveItem<T>(items: T[], from: number, to: number): T[] {
+  if (!Number.isInteger(from) || !Number.isInteger(to)
+    || from === to || from < 0 || to < 0 || from >= items.length || to >= items.length) {
+    return items;
+  }
+  const reordered = [...items];
+  const [item] = reordered.splice(from, 1);
+  reordered.splice(to, 0, item);
+  return reordered;
+}
+
+export function reorderSelectedValues(
+  values: SequenceItem[],
+  presets: CustomPreset[],
+  selectedPresetId: string | null,
+  from: number,
+  to: number,
+) {
+  const fakeMs = moveItem(values, from, to);
+  const selected = presets.find((preset) => preset.id === selectedPresetId);
+  // Правки в черновике не должны перезаписывать выбранный пресет.
+  if (fakeMs === values || !selected || selected.values.length !== values.length
+    || !selected.values.every((value, index) => value === values[index])) {
+    return { fakeMs, customPresets: presets };
+  }
+  return {
+    fakeMs,
+    customPresets: presets.map((preset) => preset === selected ? { ...preset, values: fakeMs } : preset),
+  };
+}
